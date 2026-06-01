@@ -1,0 +1,6 @@
+.github/
+.npm-cache/
+scripts/
+test/
+*.tmp
+*.lock

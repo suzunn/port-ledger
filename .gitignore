@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+.npm-cache/
+*.tmp
+*.lock
+.DS_Store

@@ -1,0 +1,18 @@
+{
+  "name": "port-ledger",
+  "version": "0.1.0",
+  "description": "I coordinate expiring local development port reservations from the command line.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "port-ledger": "./src/cli.js"
+  },
+  "scripts": {
+    "ci": "npm run lint && npm test",
+    "lint": "node ./scripts/lint.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
