@@ -10,10 +10,21 @@ const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_LOCK_TIMEOUT_MS = 2000;
 const DEFAULT_STALE_LOCK_MS = 30_000;
 
+/**
+ * Return the default JSON registry location for the current user.
+ *
+ * @returns {string} Absolute path to the lease registry file.
+ */
 export function defaultRegistryPath() {
   return path.join(os.homedir(), ".port-ledger", "leases.json");
 }
 
+/**
+ * Parse a compact lease duration such as `30m`, `8h`, or `2d`.
+ *
+ * @param {string} value - Duration string with a minute, hour, or day suffix.
+ * @returns {number} Duration in milliseconds.
+ */
 export function parseDuration(value) {
   if (typeof value !== "string") {
     throw new Error("TTL must use a duration such as 30m, 8h, or 2d.");
@@ -33,6 +44,13 @@ export function parseDuration(value) {
   return Number(match[1]) * units[match[2]];
 }
 
+/**
+ * Validate and normalize a TCP port value.
+ *
+ * @param {unknown} value - Value to parse as a port number.
+ * @param {string} [label="port"] - Label used in validation errors.
+ * @returns {number} Integer TCP port between 1 and 65535.
+ */
 export function assertPort(value, label = "port") {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -41,6 +59,12 @@ export function assertPort(value, label = "port") {
   return port;
 }
 
+/**
+ * Read the lease registry, returning an empty ledger when it does not exist.
+ *
+ * @param {string} [registryPath=defaultRegistryPath()] - Registry file to read.
+ * @returns {{version: number, leases: Array<object>}} Parsed ledger data.
+ */
 export function readLedger(registryPath = defaultRegistryPath()) {
   try {
     const parsed = JSON.parse(fs.readFileSync(registryPath, "utf8"));
@@ -59,6 +83,13 @@ export function readLedger(registryPath = defaultRegistryPath()) {
   }
 }
 
+/**
+ * Persist a lease registry with an atomic temporary-file rename.
+ *
+ * @param {string} registryPath - Registry file to write.
+ * @param {{version: number, leases: Array<object>}} ledger - Ledger payload.
+ * @returns {void}
+ */
 export function writeLedger(registryPath, ledger) {
   const directory = path.dirname(registryPath);
   const temporaryPath = `${registryPath}.${randomUUID()}.tmp`;
@@ -68,6 +99,13 @@ export function writeLedger(registryPath, ledger) {
   fs.renameSync(temporaryPath, registryPath);
 }
 
+/**
+ * Remove expired leases from an in-memory ledger snapshot.
+ *
+ * @param {{version: number, leases: Array<object>}} ledger - Ledger to prune.
+ * @param {Date} [now=new Date()] - Clock value used for expiration checks.
+ * @returns {{ledger: {version: number, leases: Array<object>}, removed: number}} Pruned ledger and removal count.
+ */
 export function pruneExpired(ledger, now = new Date()) {
   const nowMs = now.getTime();
   const leases = ledger.leases.filter(
@@ -80,6 +118,15 @@ export function pruneExpired(ledger, now = new Date()) {
   };
 }
 
+/**
+ * Run a task while holding the registry lock file.
+ *
+ * @template T
+ * @param {string} registryPath - Registry path whose lock should be held.
+ * @param {() => Promise<T> | T} task - Work to perform while locked.
+ * @param {{timeoutMs?: number, staleLockMs?: number, retryMs?: number}} [options] - Lock timing options.
+ * @returns {Promise<T>} The task result.
+ */
 export async function withRegistryLock(registryPath, task, options = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   const staleLockMs = options.staleLockMs ?? DEFAULT_STALE_LOCK_MS;
@@ -120,6 +167,20 @@ export async function withRegistryLock(registryPath, task, options = {}) {
   }
 }
 
+/**
+ * Reserve a port lease for a project, reusing an existing active lease when present.
+ *
+ * @param {string} project - Project name that owns the lease.
+ * @param {object} [options] - Reservation options.
+ * @param {string} [options.registryPath] - Custom registry file path.
+ * @param {Date} [options.now] - Clock value used for timestamps and pruning.
+ * @param {number} [options.ttlMs] - Lease duration in milliseconds.
+ * @param {number} [options.from] - First port in the search range.
+ * @param {number} [options.to] - Last port in the search range.
+ * @param {number} [options.port] - Exact port to reserve.
+ * @param {(port: number) => Promise<boolean>} [options.probe] - Availability probe.
+ * @returns {Promise<{lease: object, reused: boolean}>} Reserved lease and reuse flag.
+ */
 export async function reserveLease(project, options = {}) {
   if (!project || typeof project !== "string") {
     throw new Error("Project name is required.");
@@ -182,6 +243,15 @@ export async function reserveLease(project, options = {}) {
   });
 }
 
+/**
+ * Release the active lease for a project.
+ *
+ * @param {string} project - Project name whose lease should be removed.
+ * @param {object} [options] - Release options.
+ * @param {string} [options.registryPath] - Custom registry file path.
+ * @param {Date} [options.now] - Clock value used for pruning.
+ * @returns {Promise<{removed: boolean}>} Whether a lease was removed.
+ */
 export async function releaseLease(project, options = {}) {
   if (!project || typeof project !== "string") {
     throw new Error("Project name is required.");
@@ -199,6 +269,14 @@ export async function releaseLease(project, options = {}) {
   });
 }
 
+/**
+ * List active leases after pruning expired entries.
+ *
+ * @param {object} [options] - Listing options.
+ * @param {string} [options.registryPath] - Custom registry file path.
+ * @param {Date} [options.now] - Clock value used for pruning.
+ * @returns {Promise<Array<object>>} Active leases sorted by registry order.
+ */
 export async function listLeases(options = {}) {
   const registryPath = options.registryPath ?? defaultRegistryPath();
   const now = options.now ?? new Date();
@@ -212,6 +290,14 @@ export async function listLeases(options = {}) {
   });
 }
 
+/**
+ * Remove expired leases from the registry.
+ *
+ * @param {object} [options] - Prune options.
+ * @param {string} [options.registryPath] - Custom registry file path.
+ * @param {Date} [options.now] - Clock value used for expiration checks.
+ * @returns {Promise<{removed: number}>} Number of expired leases removed.
+ */
 export async function pruneLeases(options = {}) {
   const registryPath = options.registryPath ?? defaultRegistryPath();
   const now = options.now ?? new Date();
