@@ -68,6 +68,30 @@ test("reserveLease reuses an active project lease", async () => {
   assert.equal(readLedger(registryPath).leases.length, 1);
 });
 
+test("reserveLease rejects changing an active project lease port", async () => {
+  const registryPath = temporaryRegistry();
+  const probe = async () => true;
+
+  await reserveLease("api", { registryPath, port: 4200, now, probe });
+
+  await assert.rejects(
+    reserveLease("api", { registryPath, port: 4201, now, probe }),
+    /api already reserves port 4200/,
+  );
+  assert.equal(readLedger(registryPath).leases[0].port, 4200);
+});
+
+test("reserveLease reports when no candidate ports are available", async () => {
+  const registryPath = temporaryRegistry();
+  const probe = async () => false;
+
+  await assert.rejects(
+    reserveLease("api", { registryPath, from: 4210, to: 4211, now, probe }),
+    /No available port found between 4210 and 4211/,
+  );
+  assert.deepEqual(readLedger(registryPath).leases, []);
+});
+
 test("listLeases and pruneLeases remove expired leases", async () => {
   const registryPath = temporaryRegistry();
   const probe = async () => true;
@@ -99,6 +123,14 @@ test("releaseLease removes matching projects without affecting other leases", as
     (await listLeases({ registryPath, now })).map((lease) => lease.project),
     ["web"],
   );
+});
+
+test("readLedger rejects registries with an unsupported schema", () => {
+  const registryPath = temporaryRegistry();
+  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+  fs.writeFileSync(registryPath, JSON.stringify({ version: 2, leases: [] }), "utf8");
+
+  assert.throws(() => readLedger(registryPath), /Registry must contain version 1 leases/);
 });
 
 test("withRegistryLock reports live lock contention", async () => {
